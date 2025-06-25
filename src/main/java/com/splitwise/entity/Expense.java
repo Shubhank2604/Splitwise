@@ -1,11 +1,12 @@
 package com.splitwise.entity;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.NoArgsConstructor;
 
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
 
 @Entity
 @Table(name = "expenses")
@@ -17,27 +18,23 @@ public class Expense {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @JsonProperty("description")
     @Column(nullable = false)
     private String description;
 
-    @JsonProperty("amount")
-    @Column(nullable = false)
-    private Double amount;
+    public Double getAmount() {
+        return amount;
+    }
 
-    @JsonProperty("paidBy")
-    @Column(nullable = false)
-    private String paidBy;
-
-    @JsonProperty("date")
-    @Column(nullable = false)
-    @Temporal(TemporalType.TIMESTAMP)
-    private Date date;
-
-    // Getters and setters
+    public void setAmount(Double amount) {
+        this.amount = amount;
+    }
 
     public Long getId() {
         return id;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
     }
 
     public String getDescription() {
@@ -48,22 +45,6 @@ public class Expense {
         this.description = description;
     }
 
-    public Double getAmount() {
-        return amount;
-    }
-
-    public void setAmount(Double amount) {
-        this.amount = amount;
-    }
-
-    public String getPaidBy() {
-        return paidBy;
-    }
-
-    public void setPaidBy(String paidBy) {
-        this.paidBy = paidBy;
-    }
-
     public Date getDate() {
         return date;
     }
@@ -71,4 +52,37 @@ public class Expense {
     public void setDate(Date date) {
         this.date = date;
     }
+
+    public User getPaidBy() {
+        return paidBy;
+    }
+
+    public void setPaidBy(User paidBy) {
+        this.paidBy = paidBy;
+    }
+
+    public List<Split> getSplits() {
+        return splits;
+    }
+
+    public void setSplits(List<Split> splits) {
+        this.splits = splits;
+    }
+
+    @Column(nullable = false)
+    private Double amount;
+
+    @ManyToOne
+    @JoinColumn(name = "paid_by_user_id", nullable = false) // The side with @JoinColumn is the owning side (i.e., Expense here).
+    private User paidBy;
+
+    @Temporal(TemporalType.TIMESTAMP)
+    @Column(nullable = false)
+    private Date date;
+
+    @OneToMany(mappedBy = "expense", cascade = CascadeType.ALL)
+    private List<Split> splits = new ArrayList<>();
+
+    // Getters and Setters
 }
+

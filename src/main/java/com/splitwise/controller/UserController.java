@@ -1,5 +1,8 @@
 package com.splitwise.controller;
 
+import com.splitwise.dto.UserBalanceResponse;
+import com.splitwise.service.ExpenseService;
+import com.splitwise.service.UserBalanceService;
 import com.splitwise.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -15,6 +18,9 @@ public class UserController {
     @Autowired
     private UserService userService;
 
+    @Autowired
+    private UserBalanceService userBalanceService;
+
     // Example: Get user details (protected endpoint)
     @GetMapping("/{username}")
     public ResponseEntity<Object> getUser(@PathVariable String username, Authentication authentication) {
@@ -29,5 +35,10 @@ public class UserController {
 
         UserDetails user = userService.loadUserByUsername(username);
         return ResponseEntity.ok(user);
+    }
+
+    @GetMapping(value = "/{userId}/balance", produces = "application/json")
+    public ResponseEntity<UserBalanceResponse> getUserBalance(@PathVariable Long userId) {
+        return ResponseEntity.ok(userBalanceService.getUserBalance(userId));
     }
 }

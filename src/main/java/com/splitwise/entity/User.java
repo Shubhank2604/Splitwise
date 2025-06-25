@@ -4,6 +4,9 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.*;
 import lombok.*;
 
+import java.util.List;
+import java.util.ArrayList;
+
 @Entity
 @Table(name = "users")  // Table name in MySQL
 @Data
@@ -12,6 +15,26 @@ import lombok.*;
 @NoArgsConstructor
 @AllArgsConstructor
 public class User {
+
+    public Long getId() {
+        return id;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
+    }
+
+    public void setExpensesPaid(List<Expense> expensesPaid) {
+        this.expensesPaid = expensesPaid;
+    }
+
+    public List<Split> getSplits() {
+        return splits;
+    }
+
+    public void setSplits(List<Split> splits) {
+        this.splits = splits;
+    }
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -24,6 +47,21 @@ public class User {
     @Column(nullable = false, unique = true)
     @JsonProperty
     private String email;
+
+    @Column(nullable = false)
+    @JsonProperty
+    private String password;
+
+    public List<Expense> getExpensesPaid() {
+        return expensesPaid;
+    }
+
+    @OneToMany(mappedBy = "paidBy", cascade = CascadeType.ALL) // Always use mappedBy on the inverse (non-owning) side (i.e., User here).
+    private List<Expense> expensesPaid = new ArrayList<>();
+
+    // Add this if you want to fetch user splits too
+    @OneToMany(mappedBy = "user", cascade = CascadeType.ALL)
+    private List<Split> splits = new ArrayList<>();
 
     public String getUsername() {
         return username;
@@ -48,8 +86,4 @@ public class User {
     public void setPassword(String password) {
         this.password = password;
     }
-
-    @Column(nullable = false)
-    @JsonProperty
-    private String password;
 }
