@@ -1,183 +1,115 @@
-# Splitwise Backend
+# Splitwise API
 
-## What it does
+[![CI](https://github.com/Shubhank2604/Splitwise/actions/workflows/ci.yml/badge.svg)](https://github.com/Shubhank2604/Splitwise/actions/workflows/ci.yml)
 
-This project is a Spring Boot backend for a Splitwise-style expense sharing web application. It provides RESTful APIs that let users register, log in, create groups, add members, record shared expenses, split expenses between users, track balances, and settle debts.
+A secure expense-sharing backend that records group and personal expenses, maintains a canonical debt ledger, and settles balances transactionally.
 
-The backend uses JWT-based authentication for protected endpoints and BCrypt password hashing for storing user passwords securely. Data is persisted in a MySQL database through Spring Data JPA and Hibernate.
+This repository focuses on the engineering details that make money movement trustworthy: authenticated ownership, exact decimal arithmetic, database constraints, migrations, pessimistic locking, rollback safety, and integration tests.
 
-Core capabilities include:
+## Why this implementation is interesting
 
-- User registration and login
-- JWT-protected API access
-- Group creation and group membership management
-- Expense creation with custom split amounts
-- Personal and group balance tracking
-- Settle-up transaction recording
-- Dashboard summaries for personal and group balances
+- **The server identifies the actor.** Group creators, expense payers, dashboards, and settlement payers are derived from the JWT subject. A client cannot act as another user by changing an ID in a request.
+- **Money is never a floating-point number.** Amounts use `BigDecimal` and database `DECIMAL(19,2)` columns.
+- **Splits obey conservation of money.** Each participant is unique, every amount is positive, and split amounts must equal the expense total exactly.
+- **Debt is canonical.** Opposing debts are netted into one direction instead of storing contradictory rows.
+- **Settlements are bounded.** The API rejects nonexistent debt and overpayment, then records the settlement and ledger update in one transaction.
+- **Group access is enforced.** Only the creator can add members, and every participant in a group expense must belong to that group.
+- **Schema changes are reproducible.** Flyway owns the schema; Hibernate validates it at startup.
 
-## Project Structure
+## Architecture
 
-```text
-backend/
-  pom.xml
-  src/
-    main/
-      java/
-        com/splitwise/
-          SplitwiseApplication.java
-          controller/
-            AuthController.java
-            DashboardController.java
-            ExpenseController.java
-            GroupController.java
-            UserController.java
-          dto/
-            AddGroupMembersRequest.java
-            AuthResponse.java
-            CreateExpenseRequest.java
-            CreateGroupRequest.java
-            DashboardResponseDTO.java
-            ExpenseDTO.java
-            GroupBalanceDTO.java
-            LoginRequest.java
-            PersonalBalanceDTO.java
-            RegisterRequest.java
-            UserBalanceDTO.java
-            UserBalanceResponse.java
-          entity/
-            Expense.java
-            Group.java
-            GroupMember.java
-            Split.java
-            Transaction.java
-            User.java
-            UserBalance.java
-          repository/
-            ExpenseRepository.java
-            GroupMemberRepository.java
-            GroupRepository.java
-            SplitRepository.java
-            TransactionRepository.java
-            UserBalanceRepository.java
-            UserRepository.java
-          security/
-            JwtFilter.java
-            JwtUtil.java
-            SecurityConfig.java
-          service/
-            DashboardService.java
-            ExpenseService.java
-            GroupService.java
-            TransactionService.java
-            UserBalanceService.java
-            UserService.java
-      resources/
-        application.properties
-    test/
-      java/
-        com/splitwise/
-          SplitwiseApplicationTests.java
-          service/
-            UserServiceTest.java
+```mermaid
+flowchart TD
+    Client[API client] --> Security[JWT filter]
+    Security --> Controllers[REST controllers]
+    Controllers --> Services[Transactional services]
+    Services --> Ledger[Canonical debt ledger]
+    Services --> JPA[JPA repositories]
+    JPA --> MySQL[(MySQL)]
+    Ledger --> JPA
 ```
 
-Important packages:
+## Stack
 
-- `controller`: REST API endpoints.
-- `dto`: Request and response objects used by the APIs.
-- `entity`: JPA entities mapped to relational database tables.
-- `repository`: Spring Data JPA repositories for database access.
-- `security`: JWT authentication and Spring Security configuration.
-- `service`: Business logic for users, groups, expenses, balances, dashboard data, and transactions.
+Java 17, Spring Boot, Spring Security, Spring Data JPA, MySQL 8, Flyway, JJWT, JUnit 5, AssertJ, H2, Docker Compose, and GitHub Actions.
 
-## Architecture/Flow
+## Run locally
 
-The backend follows a standard layered Spring Boot architecture:
-
-```text
-Client
-  -> REST Controller
-  -> Service Layer
-  -> Repository Layer
-  -> MySQL Database
-```
-
-Authentication flow:
-
-1. A user registers through `POST /auth/register`.
-2. The password is hashed with BCrypt before being stored.
-3. The user logs in through `POST /auth/login`.
-4. Spring Security validates the username and password.
-5. A JWT is generated and returned to the client.
-6. Protected requests include the token in the `Authorization: Bearer <token>` header.
-7. `JwtFilter` validates the token and sets the authenticated user in the security context.
-
-Expense flow:
-
-1. A client sends an expense request to `POST /expenses`.
-2. `ExpenseController` passes the request to `ExpenseService`.
-3. `ExpenseService` loads the payer and validates group membership when the expense belongs to a group.
-4. An `Expense` record is created with related `Split` records.
-5. `UserBalanceService` updates the amount owed from each split user to the payer.
-6. Data is persisted using JPA repositories.
-
-Balance flow:
-
-1. `GET /users/{userId}/balance` returns a user's net balances with other users.
-2. `GET /dashboard?userId={userId}` returns personal totals and group-level balance summaries.
-3. `UserBalanceRepository` provides aggregate queries for amounts owed by and owed to a user.
-
-Settle-up flow:
-
-1. A client calls `POST /users/{payerId}/settle-up/{receiverId}` with an amount.
-2. `TransactionService` creates a `Transaction` record.
-3. `UserBalanceService` reduces or removes the corresponding outstanding balance.
-
-Main database tables:
-
-- `users`
-- `user_groups`
-- `group_members`
-- `expenses`
-- `splits`
-- `user_balances`
-- `transactions`
-
-## Run the project
-
-Prerequisites:
-
-- Java 17
-- Maven
-- MySQL
-
-Create a MySQL database and user matching `backend/src/main/resources/application.properties`:
-
-```properties
-spring.datasource.url=jdbc:mysql://localhost:3306/splitwise_db
-spring.datasource.username=splitwise_user
-spring.datasource.password=mypassword
-```
-
-From the project root, run:
+Requirements: Java 17+, Maven 3.9+, and Docker.
 
 ```bash
-cd backend
+docker compose up -d
+export JWT_SECRET="replace-this-with-at-least-32-random-characters"
 mvn spring-boot:run
 ```
 
-The application starts as a Spring Boot service, typically on:
+The default local database values match `compose.yml`. For a different database, set `DB_URL`, `DB_USERNAME`, and `DB_PASSWORD`; see `.env.example`.
 
-```text
-http://localhost:8080
-```
-
-Run tests with:
+Health check:
 
 ```bash
-cd backend
-mvn test
+curl http://localhost:8080/actuator/health
 ```
 
-Current test classes are present, but they are disabled with `@Disabled`.
+## API walkthrough
+
+Register and log in:
+
+```bash
+curl -X POST http://localhost:8080/api/auth/register \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"alice","email":"alice@example.com","password":"strong-password"}'
+
+curl -X POST http://localhost:8080/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"alice","password":"strong-password"}'
+```
+
+Use the returned token on protected requests:
+
+```bash
+curl -X POST http://localhost:8080/api/expenses \
+  -H 'Authorization: Bearer YOUR_TOKEN' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "description": "Dinner",
+    "amount": 100.00,
+    "groupId": null,
+    "splits": [
+      {"userId": 1, "amount": 20.00},
+      {"userId": 2, "amount": 80.00}
+    ]
+  }'
+```
+
+The authenticated user is the payer. There is deliberately no `paidByUserId` field.
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `POST` | `/api/auth/register` | Create an account |
+| `POST` | `/api/auth/login` | Obtain a JWT |
+| `GET` | `/api/users/me` | Read the authenticated profile |
+| `GET` | `/api/users/me/balance` | Read the authenticated user's ledger |
+| `POST` | `/api/groups` | Create a group as the authenticated user |
+| `POST` | `/api/groups/{id}/members` | Add members as the group creator |
+| `POST` | `/api/expenses` | Record and split an expense |
+| `POST` | `/api/settlements` | Settle the authenticated user's debt |
+| `GET` | `/api/dashboard` | Read personal and per-group net balances |
+
+Positive balances mean another user owes you; negative balances mean you owe them.
+
+## Verification
+
+```bash
+mvn verify
+```
+
+The test suite covers authentication boundaries, password-hash response safety, expense invariants, group authorization, opposing-debt netting, settlement overpayment, full settlement, and JWT configuration. CI runs the same command for every pull request and every push to `master`.
+
+## Security notes
+
+- Supply `JWT_SECRET` from a secret manager in production; startup rejects secrets shorter than 32 bytes.
+- JWT failures return `401` rather than leaking parser errors or becoming server errors.
+- Passwords are BCrypt hashes and are never included in response DTOs.
+- All protected operations use the authenticated principal as their ownership boundary.
+- This project is an educational implementation, not a custodian of real funds.
