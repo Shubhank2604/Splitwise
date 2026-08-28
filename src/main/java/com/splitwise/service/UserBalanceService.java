@@ -9,7 +9,6 @@ import com.splitwise.exception.ConflictException;
 import com.splitwise.repository.UserBalanceRepository;
 import com.splitwise.repository.UserRepository;
 import java.math.BigDecimal;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -34,6 +33,7 @@ public class UserBalanceService {
             return;
         }
         BigDecimal amount = Money.positive(value);
+        lockUserPair(debtorId, creditorId);
         UserBalance reverse = balanceRepository.findDebtForUpdate(creditorId, debtorId, groupId).orElse(null);
         if (reverse != null) {
             int comparison = reverse.getAmount().compareTo(amount);
@@ -59,6 +59,7 @@ public class UserBalanceService {
     @Transactional
     public void settleDebt(Long payerId, Long receiverId, Long groupId, BigDecimal value) {
         BigDecimal amount = Money.positive(value);
+        lockUserPair(payerId, receiverId);
         UserBalance debt = balanceRepository.findDebtForUpdate(payerId, receiverId, groupId)
             .orElseThrow(() -> new ConflictException("No outstanding debt exists for this settlement"));
         int comparison = amount.compareTo(debt.getAmount());
@@ -104,5 +105,14 @@ public class UserBalanceService {
                 ? balance.getAmount()
                 : balance.getAmount().negate())
             .reduce(BigDecimal.ZERO.setScale(2), BigDecimal::add);
+    }
+
+    private void lockUserPair(Long firstUserId, Long secondUserId) {
+        List<Long> ids = firstUserId < secondUserId
+            ? List.of(firstUserId, secondUserId)
+            : List.of(secondUserId, firstUserId);
+        if (userRepository.lockByIds(ids).size() != 2) {
+            throw new IllegalArgumentException("Both users must exist");
+        }
     }
 }
