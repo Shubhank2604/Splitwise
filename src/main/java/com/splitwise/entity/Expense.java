@@ -38,6 +38,12 @@ public class Expense {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
+    @Column(name = "idempotency_key", length = 100)
+    private String idempotencyKey;
+
+    @Column(name = "request_hash", length = 64)
+    private String requestHash;
+
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     @JoinColumn(name = "expense_id", nullable = false)
     private List<ExpenseSplit> splits = new ArrayList<>();
@@ -45,11 +51,20 @@ public class Expense {
     protected Expense() {
     }
 
-    public Expense(String description, BigDecimal amount, Long paidBy, Long groupId) {
+    public Expense(
+        String description,
+        BigDecimal amount,
+        Long paidBy,
+        Long groupId,
+        String idempotencyKey,
+        String requestHash
+    ) {
         this.description = description;
         this.amount = amount;
         this.paidBy = paidBy;
         this.groupId = groupId;
+        this.idempotencyKey = idempotencyKey;
+        this.requestHash = requestHash;
         this.createdAt = Instant.now();
     }
 
@@ -79,6 +94,10 @@ public class Expense {
 
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    public String getRequestHash() {
+        return requestHash;
     }
 
     public List<ExpenseSplit> getSplits() {

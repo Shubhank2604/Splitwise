@@ -1,6 +1,7 @@
 package com.splitwise.service;
 
 import com.splitwise.domain.Money;
+import com.splitwise.domain.Idempotency;
 import com.splitwise.dto.CreateExpenseRequest;
 import com.splitwise.dto.ExpenseResponse;
 import com.splitwise.dto.SplitInput;
@@ -11,6 +12,7 @@ import com.splitwise.repository.ExpenseRepository;
 import java.math.BigDecimal;
 import java.util.LinkedHashSet;
 import java.util.Set;
+import java.util.Comparator;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -34,8 +36,9 @@ public class ExpenseService {
     }
 
     @Transactional
-    public ExpenseResponse create(CreateExpenseRequest request, String actorUsername) {
+    public ExpenseResponse create(CreateExpenseRequest request, String actorUsername, String rawIdempotencyKey) {
         User payer = userService.requireByUsername(actorUsername);
+        String idempotencyKey = Idempotency.requireValidKey(rawIdempotencyKey);
         BigDecimal total = Money.positive(request.amount());
         Set<Long> participantIds = new LinkedHashSet<>();
         BigDecimal splitTotal = BigDecimal.ZERO.setScale(2);
@@ -50,12 +53,22 @@ public class ExpenseService {
         }
         userService.requireAllById(participantIds, participantIds.size());
 
+        String fingerprint = expenseFingerprint(request, total);
+        Expense existing = expenseRepository.findByPaidByAndIdempotencyKey(payer.getId(), idempotencyKey)
+            .orElse(null);
+        if (existing != null) {
+            Idempotency.requireSameRequest(existing.getRequestHash(), fingerprint);
+            return ExpenseResponse.from(existing);
+        }
+
         if (request.groupId() != null) {
             groupService.requireMembership(request.groupId(), payer.getId());
             participantIds.forEach(userId -> groupService.requireMembership(request.groupId(), userId));
         }
 
-        Expense expense = new Expense(request.description().trim(), total, payer.getId(), request.groupId());
+        Expense expense = new Expense(
+            request.description().trim(), total, payer.getId(), request.groupId(), idempotencyKey, fingerprint
+        );
         request.splits().forEach(split ->
             expense.addSplit(new ExpenseSplit(split.userId(), Money.positive(split.amount())))
         );
@@ -67,5 +80,16 @@ public class ExpenseService {
                 split.userId(), payer.getId(), request.groupId(), split.amount()
             ));
         return ExpenseResponse.from(saved);
+    }
+
+    private String expenseFingerprint(CreateExpenseRequest request, BigDecimal total) {
+        String splits = request.splits().stream()
+            .sorted(Comparator.comparing(SplitInput::userId))
+            .map(split -> split.userId() + ":" + Money.positive(split.amount()).toPlainString())
+            .reduce((left, right) -> left + "," + right)
+            .orElse("");
+        return Idempotency.fingerprint(
+            request.description().trim() + "|" + total.toPlainString() + "|" + request.groupId() + "|" + splits
+        );
     }
 }

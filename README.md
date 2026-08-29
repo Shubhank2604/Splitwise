@@ -15,6 +15,7 @@ This repository focuses on the engineering details that make money movement trus
 - **Settlements are bounded.** The API rejects nonexistent debt and overpayment, then records the settlement and ledger update in one transaction.
 - **Group access is enforced.** Only the creator can add members, and every participant in a group expense must belong to that group.
 - **Schema changes are reproducible.** Flyway owns the schema; Hibernate validates it at startup.
+- **Financial writes are idempotent.** Expense and settlement POSTs require an actor-scoped `Idempotency-Key`; exact replays return the original record while key reuse with a different payload is rejected.
 
 ## Expense transaction
 
@@ -57,6 +58,7 @@ Bob settles `$12.50` with Alice:
 ```bash
 curl -X POST http://localhost:8080/api/settlements \
   -H 'Authorization: Bearer BOBS_TOKEN' \
+  -H 'Idempotency-Key: settlement-bob-alice-001' \
   -H 'Content-Type: application/json' \
   -d '{"receiverId":1,"groupId":null,"amount":12.50}'
 ```
@@ -104,6 +106,7 @@ Use the returned token on protected requests:
 ```bash
 curl -X POST http://localhost:8080/api/expenses \
   -H 'Authorization: Bearer YOUR_TOKEN' \
+  -H 'Idempotency-Key: expense-dinner-001' \
   -H 'Content-Type: application/json' \
   -d '{
     "description": "Dinner",
@@ -117,6 +120,8 @@ curl -X POST http://localhost:8080/api/expenses \
 ```
 
 The authenticated user is the payer. There is deliberately no `paidByUserId` field.
+
+`Idempotency-Key` values are scoped to the authenticated actor. Reusing a key with the same semantic request returns the existing expense or settlement; reusing it with a different amount, participants, group, receiver, or description returns `409 Conflict`. Database uniqueness also prevents two records from claiming the same actor/key pair.
 
 | Method | Endpoint | Purpose |
 |---|---|---|

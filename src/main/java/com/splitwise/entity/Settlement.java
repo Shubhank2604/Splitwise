@@ -31,14 +31,29 @@ public class Settlement {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
+    @Column(name = "idempotency_key", length = 100)
+    private String idempotencyKey;
+
+    @Column(name = "request_hash", length = 64)
+    private String requestHash;
+
     protected Settlement() {
     }
 
-    public Settlement(Long payerId, Long receiverId, Long groupId, BigDecimal amount) {
+    public Settlement(
+        Long payerId,
+        Long receiverId,
+        Long groupId,
+        BigDecimal amount,
+        String idempotencyKey,
+        String requestHash
+    ) {
         this.payerId = payerId;
         this.receiverId = receiverId;
         this.groupId = groupId;
         this.amount = amount;
+        this.idempotencyKey = idempotencyKey;
+        this.requestHash = requestHash;
         this.createdAt = Instant.now();
     }
 
@@ -64,5 +79,9 @@ public class Settlement {
 
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    public String getRequestHash() {
+        return requestHash;
     }
 }
