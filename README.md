@@ -16,18 +16,52 @@ This repository focuses on the engineering details that make money movement trus
 - **Group access is enforced.** Only the creator can add members, and every participant in a group expense must belong to that group.
 - **Schema changes are reproducible.** Flyway owns the schema; Hibernate validates it at startup.
 
-## Architecture
+## Expense transaction
 
 ```mermaid
 flowchart TD
-    Client[API client] --> Security[JWT filter]
-    Security --> Controllers[REST controllers]
-    Controllers --> Services[Transactional services]
-    Services --> Ledger[Canonical debt ledger]
-    Services --> JPA[JPA repositories]
-    JPA --> MySQL[(MySQL)]
-    Ledger --> JPA
+    Request[Expense request] --> Actor[Resolve payer from JWT]
+    Actor --> Validate[Validate amount, splits, users, and group membership]
+    Validate --> Save[Save expense and splits]
+    Save --> PairLock[Lock each user pair in deterministic ID order]
+    PairLock --> Net[Net reverse debt or update canonical debt]
+    Net --> Commit[(Commit one transaction)]
 ```
+
+For each non-payer split, the participant becomes the debtor and the authenticated payer becomes the creditor. Expense rows, split rows, and every resulting ledger update share one transaction; a validation or ledger failure rolls back the whole request.
+
+Deterministic user-pair locking serializes both updates to an existing balance and the first balance created for a pair. This prevents two concurrent requests from creating contradictory debt rows.
+
+## Canonical debt example
+
+Suppose Alice pays a `$100.00` dinner split as `$20.00` for Alice and `$80.00` for Bob:
+
+```text
+Bob -> Alice: $80.00
+```
+
+Bob later pays a `$50.00` expense entirely for Alice. That produces debt in the opposite direction, so the service nets it against the existing row:
+
+```text
+Before: Bob -> Alice: $80.00
+Apply:  Alice -> Bob: $50.00
+After:  Bob -> Alice: $30.00
+```
+
+The database stores only the final `$30.00` direction. It does not keep two opposing rows whose net value must be reconstructed later.
+
+## Settlement example
+
+Bob settles `$12.50` with Alice:
+
+```bash
+curl -X POST http://localhost:8080/api/settlements \
+  -H 'Authorization: Bearer BOBS_TOKEN' \
+  -H 'Content-Type: application/json' \
+  -d '{"receiverId":1,"groupId":null,"amount":12.50}'
+```
+
+The server derives Bob from the token, locks the Alice/Bob pair, verifies that Bob owes Alice at least `$12.50`, reduces the debt to `$17.50`, and records the settlement in the same transaction. An amount above `$30.00` is rejected; a full `$30.00` settlement deletes the debt row.
 
 ## Stack
 
