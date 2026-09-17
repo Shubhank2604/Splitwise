@@ -2,20 +2,26 @@
 
 [![CI](https://github.com/Shubhank2604/Splitwise/actions/workflows/ci.yml/badge.svg)](https://github.com/Shubhank2604/Splitwise/actions/workflows/ci.yml)
 
-A secure expense-sharing backend that records group and personal expenses, maintains a canonical debt ledger, and settles balances transactionally.
+A transactional expense-sharing API that keeps authentication, monetary arithmetic, concurrent ledger updates, settlements, and retry behavior correct under real failure modes.
 
-This repository focuses on the engineering details that make money movement trustworthy: authenticated ownership, exact decimal arithmetic, database constraints, migrations, pessimistic locking, rollback safety, and integration tests.
+## Engineering guarantees
 
-## Why this implementation is interesting
+| Failure mode | Design response | Repository evidence |
+|---|---|---|
+| A client impersonates another payer or group owner | Protected operations derive the actor from the JWT subject; request bodies do not select the authenticated identity | Authentication, ownership, and group-authorization integration tests |
+| Decimal or split errors corrupt balances | Money uses `BigDecimal` / `DECIMAL(19,2)`; positive, unique splits must equal the expense total exactly | Expense-invariant and rollback tests |
+| Concurrent writes create opposing or duplicate debt rows | User pairs are locked in deterministic ID order and debt is stored in one canonical direction | Debt-netting and concurrent first-write tests |
+| A timed-out client retries a committed write | Actor-scoped `Idempotency-Key` values and semantic request fingerprints return exact replays while changed payloads receive `409 Conflict` | Expense and settlement replay integration tests plus database uniqueness constraints |
+| A settlement exceeds the outstanding balance | Settlement and ledger mutation share one transaction; nonexistent debt and overpayment are rejected | Partial, full, and overpayment settlement tests |
+| Application entities drift from the database | Flyway owns schema evolution and Hibernate validates it at startup | Migrations exercised by the full CI test suite |
 
-- **The server identifies the actor.** Group creators, expense payers, dashboards, and settlement payers are derived from the JWT subject. A client cannot act as another user by changing an ID in a request.
-- **Money is never a floating-point number.** Amounts use `BigDecimal` and database `DECIMAL(19,2)` columns.
-- **Splits obey conservation of money.** Each participant is unique, every amount is positive, and split amounts must equal the expense total exactly.
-- **Debt is canonical.** Opposing debts are netted into one direction instead of storing contradictory rows.
-- **Settlements are bounded.** The API rejects nonexistent debt and overpayment, then records the settlement and ledger update in one transaction.
-- **Group access is enforced.** Only the creator can add members, and every participant in a group expense must belong to that group.
-- **Schema changes are reproducible.** Flyway owns the schema; Hibernate validates it at startup.
-- **Financial writes are idempotent.** Expense and settlement POSTs require an actor-scoped `Idempotency-Key`; exact replays return the original record while key reuse with a different payload is rejected.
+## Core invariants
+
+- The authenticated principal—not a client-supplied user ID—owns each protected action.
+- Every financial mutation either commits its records and canonical ledger updates together or rolls back completely.
+- Opposing debts are netted into one direction, so balances do not depend on reconstructing contradictory rows.
+- Expense and settlement retries cannot alter the ledger twice.
+- Only group creators can add members, and every participant in a group expense must belong to that group.
 
 ## Expense transaction
 
@@ -152,3 +158,7 @@ The test suite covers authentication boundaries, password-hash response safety, 
 - Passwords are BCrypt hashes and are never included in response DTOs.
 - All protected operations use the authenticated principal as their ownership boundary.
 - This project is an educational implementation, not a custodian of real funds.
+
+## License
+
+Released under the [MIT License](LICENSE).
